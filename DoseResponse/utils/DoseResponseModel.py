@@ -39,7 +39,9 @@ class DoseResponseModel():
                             "visaualiseB":None,
                             "saveFinalDiffImg":None,
                             "saveFinalDiffGrid":None,
-                            "saveFinalPopGrid":None}
+                            "saveFinalPopGrid":None,
+                            "vesselSep":None,
+                            "printCommand":False}
                                
         self.jarFileName = kwargs.get('jarFileName', './Model.jar')
         self.resultsDf = None
@@ -54,7 +56,9 @@ class DoseResponseModel():
     # =========================================================================================
     # Function to set the parameters
     def SetParams(self, **kwargs):
+        # print(self.modelConfigDic)
         for key in self.modelConfigDic.keys():
+            
             self.modelConfigDic[key] = kwargs.get(key, self.modelConfigDic[key])
         # The 'cost' and 'turnover' parameters provide shorthands to set the global deathrate and resistant cell proliferation rate
         # if self.modelConfigDic['turnover'] != None:

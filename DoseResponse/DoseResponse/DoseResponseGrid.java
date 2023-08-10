@@ -69,6 +69,7 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
     double[] srcConc = new double[]{1000, 1000}; 
     int[] srcX = new int[]{50, 50};
     int[] srcY = new int[]{25, 75};
+    int vesselSep = 50;
     // int[] srcX = new int[]{5,5};
     // int[] srcY = new int[]{3,7};
     Source[] srcList = new Source[srcX.length];
@@ -174,13 +175,18 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
         this.diffBoundary = diffBoundary;
         this.srcList = new Source[srcX.length];
         this.consumpRate = consumpRate;
+        ;
     }
 
-    public void SetDiffParams(double[] srcConc,double diffRate, double consumpRate){
+    public void SetDiffParams(double[] srcConc,double diffRate, double consumpRate, int vesselSep){
         this.srcConc = srcConc;
         this.diffRate = diffRate;
         this.srcList = new Source[srcX.length];
         this.consumpRate = consumpRate;
+        this.vesselSep = vesselSep;
+        this.srcY = new int[]{(int) Math.round(yDim/2.0 - vesselSep/2.0),
+                            (int) Math.round(yDim/2.0 + vesselSep/2.0)};
+        // System.out.println(srcY[0] + " " + srcY[1]);
     }
 
     public void SetCellParams(double[] GrowthRateList, double[] ic50List, double hillCoef, 
@@ -249,6 +255,12 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
         this.nTSteps = nTSteps;
         this.dt = dt;
     }
+
+    // public void SetVesselDistance(int vesselDistance){
+    //     // compute the y position of the two blood vessels
+    //     this.srcY = new int[]{(int) Math.round(yDim/2.0 - vesselDistance/2.0),
+    //                              (int) Math.round(yDim/2.0 + vesselDistance/2.0)};
+    // }
 
     // ------------------------------------------------------------------------------------------------------------
     // Model initialization

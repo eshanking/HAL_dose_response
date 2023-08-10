@@ -48,6 +48,8 @@ public class DoseResponseModel implements Runnable {
     double[] srcConc = model.srcConc;
     @CommandLine.Option(names = {"-consumpRate", "--consumpRate"}, description="Field consumption rate")
     double consumpRate = model.consumpRate;
+    @CommandLine.Option(names = {"-vesselSep", "--vesselSep"}, description="Separation between the two blood vessels")
+    int vesselSep = model.vesselSep; 
     // ------------------------- Output - Text -------------------------
     @CommandLine.Option(names = { "--outDir"}, description="Directory which to save output files to.") 
     String outDir = "./tmp/";
@@ -116,9 +118,9 @@ public class DoseResponseModel implements Runnable {
             }
 
             // Set parameters
-            
+            System.out.println(vesselSep);
             model.InitialiseCellLog(outFName);
-            model.SetDiffParams(srcConc, diffRate, consumpRate);
+            model.SetDiffParams(srcConc, diffRate, consumpRate, vesselSep);
             model.SetCellParams(mutProb, dieProb);
             // System.out.println("initWidth: " + initWidth);
             model.SetInitPopParams(initGeometry, initWidth,initDensity,initMutantProp);
