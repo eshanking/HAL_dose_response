@@ -118,11 +118,10 @@ public class DoseResponseModel implements Runnable {
             }
 
             // Set parameters
-            System.out.println(vesselSep);
+
             model.InitialiseCellLog(outFName);
             model.SetDiffParams(srcConc, diffRate, consumpRate, vesselSep);
             model.SetCellParams(mutProb, dieProb);
-            // System.out.println("initWidth: " + initWidth);
             model.SetInitPopParams(initGeometry, initWidth,initDensity,initMutantProp);
             model.ConfigureExperiment(nReplicates, nTSteps, dt);
 
