@@ -9,7 +9,7 @@ import HAL.Gui.GridWindow;
 import static HAL.Util.*;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+// import java.util.Arrays;
 import java.util.List;
 import java.io.File;
 import java.io.FileWriter;
@@ -41,43 +41,57 @@ class Source extends AgentSQ2Dunstackable<DoseResponseGrid>{
     }
 }
 
-class Cell extends AgentSQ2Dunstackable<DoseResponseGrid> {
-    int genotype;
-    double g_drugless;
-    double ic50;
-    double hillCoef;
+// class Cell extends AgentSQ2Dunstackable<DoseResponseGrid> {
+//     int genotype;
+//     double g_drugless;
+//     double ic50;
+//     double hillCoef;
 
-    public int GetGenotype(){
-        return this.genotype;
-    }
+//     public int GetGenotype(){
+//         return this.genotype;
+//     }
 
-    public double HillEqn(double conc){
-        // convert conc to log10
-        return this.g_drugless / (1 + Math.exp((this.ic50 - Math.log10(conc)) / this.hillCoef));
-    }
+//     public double HillEqn(double conc){
+//         // convert conc to log10
+//         return this.g_drugless / (1 + Math.exp((this.ic50 - Math.log10(conc)) / this.hillCoef));
+//     }
 
-    public double GetFitness(double conc){
-        return HillEqn(conc);
-    }
-}
+//     public double GetFitness(double conc){
+//         return HillEqn(conc);
+//     }
+// }
     
 
-public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableModel{
-    
+public class DoseResponseGrid extends AgentGrid2D<DoseResponseCell> implements SerializableModel{
+
+    public int nReplicates = 1;
+    int nTSteps = 1000;
+    double dt = 0.1; // time step in hours
     // diffusion grid
     PDEGrid2D diff;
     Source src;
-    double[] srcConc = new double[]{1000, 1000}; 
+    boolean constantGrid = false; // constant concentration of drug in the grid
+    double constantGridConc = 0; // constant concentration of drug in the grid
+    // double[] srcConc = new double[]{1000, 1000};
+    double srcConc = 1000;
     int[] srcX = new int[]{50, 50};
     int[] srcY = new int[]{25, 75};
     int vesselSep = 50;
-    // int[] srcX = new int[]{5,5};
-    // int[] srcY = new int[]{3,7};
     Source[] srcList = new Source[srcX.length];
     double diffRate = 0.1;
     double diffBoundary = 0;
     double consumpRate = 0.5;
-    
+    // static grid parameters
+    boolean staticGrid = false;
+    double charLength = 1; // microns, distance at half max
+    double drugConcScale = 1; // makes diffusion model more stable for lower concentrations
+    int pulseInterval = 7*24;// in hours
+    int pulseDuration = 24; // in hours
+    double drugStopTime = nTSteps*dt + 1; // in hours
+    boolean drugOn = false;
+    boolean pulseDosing = false;
+    // int currOnTime = 0; 
+
     // population initialization
     int xDim = 100;
     int yDim = 100; 
@@ -90,18 +104,27 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
 
     double dieProb = 0.1;
     double mutProb = 0.0001;
-    double dt = 0.1; // time step in hours
+    
+    // Synthetic parameters
     double[] GrowthRateList = new double[]{1.28949852, 1.14399848, 1.22802236, 0.93619847};
     double[] ic50List = new double[]{-0.49205992, 1.76224515,  1.39341393,  2.84653598};
-    double hillCoef = -0.6824968;
+    double[] hillCoefList = new double[]{-0.6824968,-0.6824968,-0.6824968,-0.6824968};
+    double[] gminList = new double[]{0,0,0,0}; // placeholder
+    
+    // double[] GrowthRateList = new double[]{0.0393,0.0376,0.0360,0.0355};
+    // double[] gminList = new double[]{0.0179,0.0286,0.0337,0.0296};
+    // double[] hillCoefList = new double[]{2.18,2.86,17.45,1.85};
+    // double[] ic50List = new double[]{0.0333,0.0371,0.020,0.0530};
+
     int n_genotype = 4;
     int nAllele = 2;
     int[] genotypeCounts = new int[n_genotype];
+    int initGenotype = 0; // default wild-type genotype
+    boolean useMaxConc = false; // if true, sets a max drug concentration above which the growth rate is zero
+    double maxConc = 1; // maximum drug concentration
 
     // p.drugless_rates = [1.28949852, 1.14399848, 1.22802236, 0.93619847]
     // p.ic50 = [-0.49205992, 1.76224515,  1.39341393,  2.84653598]
-    public int nReplicates = 1;
-    int nTSteps = 1000;
 
     FileIO cellCountLogFile = null;
     String cellCountLogFileName = "./data/cellCountLog.csv";
@@ -128,29 +151,31 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
     int[] colorList = new int[]{RGB(0,1,0), RGB(0,0,1),
                                 RGB(1,1,0), RGB(1,0,0)};
 
+    boolean threeParamHill = false;
+
     // ------------------------------------------------------------------------------------------------------------
     // Constructors
     // ------------------------------------------------------------------------------------------------------------
 
     public DoseResponseGrid(int x, int y) {
-        super(x, y, Cell.class);
+        super(x, y, DoseResponseCell.class);
         this.xDim = x;
         this.yDim = y;
     }
 
     public DoseResponseGrid(){
-        super(100,100,Cell.class);
+        super(100,100,DoseResponseCell.class);
     }
 
     public DoseResponseGrid(int x, int y , double[] paramArr, double dt){
-        super(x,y,Cell.class);
+        super(x,y,DoseResponseCell.class);
         // SetParameters(paramArr);
         this.dt = dt;
     }
 
     @Override
     public void SetupConstructors() {
-        _PassAgentConstructor(Cell.class);
+        _PassAgentConstructor(DoseResponseCell.class);
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -167,7 +192,7 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
         this.popGridFileName = popGridFileName;
     }
 
-    public void SetDiffParams(double[] srcConc, int[] srcX, int[] srcY, 
+    public void SetDiffParams(double srcConc, int[] srcX, int[] srcY, 
                               double diffRate, double diffBoundary, double consumpRate){
         this.srcConc = srcConc;
         this.srcX = srcX;
@@ -176,10 +201,12 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
         this.diffBoundary = diffBoundary;
         this.srcList = new Source[srcX.length];
         this.consumpRate = consumpRate;
-        ;
+        
     }
 
-    public void SetDiffParams(double[] srcConc,double diffRate, double consumpRate, int vesselSep){
+    public void SetDiffParams(double srcConc,double diffRate, double consumpRate, 
+                              int vesselSep, boolean staticGrid, double charLength,
+                              boolean constantGrid, double constantGridConc){
         this.srcConc = srcConc;
         this.diffRate = diffRate;
         this.srcList = new Source[srcX.length];
@@ -187,14 +214,62 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
         this.vesselSep = vesselSep;
         this.srcY = new int[]{(int) Math.round(yDim/2.0 - vesselSep/2.0),
                             (int) Math.round(yDim/2.0 + vesselSep/2.0)};
+        this.staticGrid = staticGrid;
+        this.charLength = charLength;
+        this.constantGrid = constantGrid;
+        this.constantGridConc = constantGridConc;
         // System.out.println(srcY[0] + " " + srcY[1]);
     }
 
-    public void SetCellParams(double[] GrowthRateList, double[] ic50List, double hillCoef, 
+
+    public void SetDiffParams(double srcConc,double diffRate, double consumpRate, 
+                              int vesselSep, boolean staticGrid, double charLength,
+                              boolean constantGrid, double constantGridConc,
+                              double drugConcScale){
+        this.srcConc = srcConc;
+        this.diffRate = diffRate;
+        this.srcList = new Source[srcX.length];
+        this.consumpRate = consumpRate;
+        this.vesselSep = vesselSep;
+        this.srcY = new int[]{(int) Math.round(yDim/2.0 - vesselSep/2.0),
+                            (int) Math.round(yDim/2.0 + vesselSep/2.0)};
+        this.staticGrid = staticGrid;
+        this.charLength = charLength;
+        this.constantGrid = constantGrid;
+        this.constantGridConc = constantGridConc;
+        this.drugConcScale = drugConcScale;
+        // System.out.println(srcY[0] + " " + srcY[1]);
+    }
+
+    public void SetDiffParams(double srcConc,double diffRate, double consumpRate, 
+                              int vesselSep, boolean staticGrid, double charLength,
+                              boolean constantGrid, double constantGridConc,
+                              double drugConcScale, boolean pulseDosing,
+                              int pulseInterval, int pulseDuration, double drugStopTime){
+        this.srcConc = srcConc;
+        this.diffRate = diffRate;
+        this.srcList = new Source[srcX.length];
+        this.consumpRate = consumpRate;
+        this.vesselSep = vesselSep;
+        this.srcY = new int[]{(int) Math.round(yDim/2.0 - vesselSep/2.0),
+                            (int) Math.round(yDim/2.0 + vesselSep/2.0)};
+        this.staticGrid = staticGrid;
+        this.charLength = charLength;
+        this.constantGrid = constantGrid;
+        this.constantGridConc = constantGridConc;
+        this.drugConcScale = drugConcScale;
+        this.pulseDosing = pulseDosing;
+        this.pulseInterval = pulseInterval;
+        this.pulseDuration = pulseDuration;
+        this.drugStopTime = drugStopTime;
+        // System.out.println(srcY[0] + " " + srcY[1]);
+    }
+
+    public void SetCellParams(double[] GrowthRateList, double[] ic50List, 
                               int n_genotype, int nAllele, double mutProb, double dieProb){
         this.GrowthRateList = GrowthRateList;
         this.ic50List = ic50List;
-        this.hillCoef = hillCoef;
+        // this.hillCoefList = hillCoefList;
         this.n_genotype = n_genotype;
         this.nAllele = nAllele;
         this.mutProb = mutProb;
@@ -205,16 +280,27 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
         this.mutProb = mutProb;
         this.dieProb = dieProb;
     }
+
+    public void SetCellParams(double mutProb, double dieProb, boolean threeParamHill,
+                                boolean useMaxConc, double maxConc){
+        this.mutProb = mutProb;
+        this.dieProb = dieProb;
+        this.threeParamHill = threeParamHill;
+        this.useMaxConc = useMaxConc;
+        this.maxConc = maxConc;
+    }
     /*
      * Set the initial population parameters. initGeometry is either "circle" or "square".
      */
     public void SetInitPopParams(String initGeometry, int initWidth, 
-                                 double initDensity, double initMutantProp){
+                                 double initDensity, double initMutantProp,
+                                 int initGenotype){
         this.initGeometry = initGeometry;
         // this.initRadius = initRadius;
         this.initWidth = initWidth;
         this.initDensity = initDensity;
         this.initMutantProp = initMutantProp;
+        this.initGenotype = initGenotype;
     }
 
     public void SetSeed(int seed) {
@@ -255,6 +341,7 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
         this.nReplicates = nReplicates;
         this.nTSteps = nTSteps;
         this.dt = dt;
+        this.drugStopTime = nTSteps*dt + 1;
     }
 
     // public void SetVesselDistance(int vesselDistance){
@@ -266,6 +353,10 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
     // ------------------------------------------------------------------------------------------------------------
     // Model initialization
     // ------------------------------------------------------------------------------------------------------------
+
+    public double Distance(double x1,double y1,double x2,double y2){
+        return Math.sqrt((x1-x2)*(x1-x2)+(y1-y2)*(y1-y2));
+    }
 
     public void InitPopulation(){
         if ("circle".equals(this.initGeometry)) {
@@ -281,19 +372,23 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
         int[] tumorNeighborhood = CircleHood(true, radius);
         int hoodSize = MapHood(tumorNeighborhood, xDim / 2, yDim / 2);
         for (int i = 0; i < hoodSize; i++) {
-            Cell c = NewAgentSQ(tumorNeighborhood[i]);
+            DoseResponseCell c = NewAgentSQ(tumorNeighborhood[i]);
             if (rng.Double() < mutantProb) {
                 int genotype = rng.Int(n_genotype-1) + 1; // any genotype other than 0
-                c.genotype = genotype;
-                c.g_drugless = GrowthRateList[genotype];
-                c.ic50 = ic50List[genotype];
-                c.hillCoef = hillCoef;
+                // c.genotype = genotype;
+                // c.g_drugless = GrowthRateList[genotype];
+                // c.ic50 = ic50List[genotype];
+                // c.hillCoef = hillCoefList[genotype];
+                // c.gmin = gminList[genotype];
+                c.setParams(genotype);
             } else {
-                int genotype = 0;
-                c.genotype = genotype;
-                c.g_drugless = GrowthRateList[genotype];
-                c.ic50 = ic50List[genotype];
-                c.hillCoef = hillCoef;
+                int genotype = initGenotype;
+                // c.genotype = genotype;
+                // c.g_drugless = GrowthRateList[genotype];
+                // c.ic50 = ic50List[genotype];
+                // c.hillCoef = hillCoefList[genotype];
+                // c.gmin = gminList[genotype];
+                c.setParams(genotype);
             }
             genotypeCounts[c.genotype] += 1;
         }
@@ -304,19 +399,24 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
         int hoodSize = x*x;
         for (int i = 0; i < hoodSize; i++){
             if (rng.Double() < density){
-                Cell c = NewAgentSQ(i);
+                DoseResponseCell c = NewAgentSQ(i);
                 if (rng.Double() < mutantProb) {
                     int genotype = rng.Int(n_genotype-1) + 1; // any genotype other than 0
-                    c.genotype = genotype;
-                    c.g_drugless = GrowthRateList[genotype];
-                    c.ic50 = ic50List[genotype];
-                    c.hillCoef = hillCoef;
+                    // c.genotype = genotype;
+                    // c.g_drugless = GrowthRateList[genotype];
+                    // c.ic50 = ic50List[genotype];
+                    // // c.hillCoef = hillCoef;
+                    // c.hillCoef = hillCoefList[genotype];
+                    // c.gmin = gminList[genotype];
+                    c.setParams(genotype);
                 } else {
-                    int genotype = 0;
-                    c.genotype = genotype;
-                    c.g_drugless = GrowthRateList[genotype];
-                    c.ic50 = ic50List[genotype];
-                    c.hillCoef = hillCoef;
+                    int genotype = initGenotype;
+                    // c.genotype = genotype;
+                    // c.g_drugless = GrowthRateList[genotype];
+                    // c.ic50 = ic50List[genotype];
+                    // c.hillCoef = hillCoefList[genotype];
+                    // c.gmin = gminList[genotype];
+                    c.setParams(genotype);
                 }
                 genotypeCounts[c.genotype] += 1;
             }
@@ -326,11 +426,53 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
 
     public void InitPDEGrid() {
         diff = new PDEGrid2D(xDim, yDim);
+        srcList = new Source[srcX.length];
         // initialize sources
         for (int i = 0; i < srcX.length; i++) {
-            Source src = new Source(srcConc[i], srcX[i], srcY[i]);
+            Source src = new Source(srcConc, srcX[i], srcY[i]);
             srcList[i] = src;
         }
+
+        if (staticGrid) {
+            // set the initial concentration
+            // calculate the static profile for each source
+            // initialize zero field
+
+            double conc;
+            double dist;
+            Source src;
+
+            if (constantGrid){
+                for (int i = 0; i < diff.length; i++){
+                    diff.Set(i, constantGridConc);
+                }
+                diff.Update();
+            }
+            else{
+                for (int i = 0; i < diff.length; i++){
+                    conc = 0;
+                    for (int s = 0; s < srcList.length; s++){
+                        src = srcList[s];
+                        dist = Distance(i / xDim, i % yDim, src.xPos, src.yPos);
+                        conc += src.conc * Math.exp(-dist * Math.log(2) / charLength);
+                    }
+                    diff.Set(i, conc);
+                }
+                diff.Update();
+            }
+
+            // for (int i = 0;i < diff.length; i++){
+            //     conc = 0;
+            //     for (int s = 0; s < srcList.length; s++){
+            //         src = srcList[s];
+            //         dist = Distance(i / xDim, i % yDim, src.xPos, src.yPos);
+            //         conc += src.conc * Math.exp(-dist * Math.log(2) / charLength);
+            //     }
+            //     diff.Set(i, conc);
+            // }
+            // diff.Update();
+        }
+        
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -338,16 +480,75 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
     // ------------------------------------------------------------------------------------------------------------
 
     public void StepPDEGrid() {
-        for (Source src : srcList) {
-            src.SetSource(diff); // sets the concentration at the source's x,y position
+
+
+
+        if (!staticGrid){
+            for (Source src : srcList) {
+                src.SetSource(diff); // sets the concentration at the source's x,y position
+            }
+            diff.Diffusion(diffRate,diffBoundary);
+            // field consumption
+            // for (int i = 0; i < diff.length; i++) {
+            //     diff.Mul(i, -consumpRate);
+            // }
+            diff.MulAll(-consumpRate);
+            diff.Update();
         }
-        diff.Diffusion(diffRate,diffBoundary);
-        // field consumption
-        // for (int i = 0; i < diff.length; i++) {
-        //     diff.Mul(i, -consumpRate);
-        // }
-        diff.MulAll(-consumpRate);
-        diff.Update();
+
+        else if (pulseDosing){
+
+            if (drugStopTime < tIdx*dt){ // if the treatment has ended
+                if (drugOn){ // if the drug is currently on, turn it off
+                    for (int i = 0; i < diff.length; i++){
+                        diff.Set(i, 0);
+                    }
+                    diff.Update();
+                }
+            }
+            
+            else{ 
+                boolean chgField = false;
+                if (tIdx*dt % pulseInterval < pulseDuration){
+                    // drugOn = true;
+                    if (!drugOn){
+                        chgField = true;
+                        drugOn = true;
+                    }
+                }
+                else{
+                    if (drugOn){
+                        chgField = true;
+                        drugOn = false;
+                    }
+                    // drugOn = false;
+                }
+                if (chgField){ // change the state of the PDE grid
+                    // if drugOn is false, then set the concentration to zero
+                    if (!drugOn){
+                        for (int i = 0; i < diff.length; i++){
+                            diff.Set(i, 0);
+                        }
+                        diff.Update();
+                    }
+                    else{ // drugOn is true, set the concentration to the static profile
+                        double conc;
+                        double dist;
+                        for (int i = 0; i < diff.length; i++){
+                            conc = 0;
+                            for (int s = 0; s < srcList.length; s++){
+                                src = srcList[s];
+                                dist = Distance(i / xDim, i % yDim, src.xPos, src.yPos);
+                                conc += src.conc * Math.exp(-dist * Math.log(2) / charLength);
+                            }
+                            diff.Set(i, conc);
+                        }
+                        diff.Update();
+                    }
+                }
+            }
+        }
+
     }
 
     public List<Integer> genNeighbors(int genotype, int nAllele) {
@@ -370,7 +571,7 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
     public void StepCells() {
         int currPos;
 
-        for (Cell cell : this) {
+        for (DoseResponseCell cell : this) {
             currPos = cell.Isq();
             // cell.StepCell(dieProb);
             if (rng.Double() < dieProb * dt){
@@ -382,32 +583,33 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
                 double currConc = diff.Get(currPos);
                 double divProb = cell.GetFitness(currConc) * dt;
 
-                // System.out.print(currConc + " ");
-                // System.out.println(divProb);
-
                 if (rng.Double() < divProb) {
                     int options = MapEmptyHood(divHood, cell.Xsq(), cell.Ysq());
                     if (options > 0) {
 
                         int iDaughter = divHood[rng.Int(options)];
-                        Cell daughter = NewAgentSQ(iDaughter);
+                        DoseResponseCell daughter = NewAgentSQ(iDaughter);
                         
-                        if (rng.Double() < mutProb){
+                        if (rng.Double() < mutProb * dt){ // should be multiplied by dt?
                             // mutate
                             List<Integer> neighbors = genNeighbors(cell.genotype, nAllele);
                             int newGenotype = neighbors.get(rng.Int(neighbors.size()));
-                            daughter.genotype = newGenotype;
-                            daughter.g_drugless = GrowthRateList[newGenotype];
-                            daughter.ic50 = ic50List[newGenotype];
-                            daughter.hillCoef = hillCoef;
+                            // daughter.genotype = newGenotype;
+                            // daughter.g_drugless = GrowthRateList[newGenotype];
+                            // daughter.ic50 = ic50List[newGenotype];
+                            // daughter.hillCoef = hillCoefList[newGenotype];
+                            // daughter.gmin = gminList[newGenotype];
+                            daughter.setParams(newGenotype);
                             
                         }
                         else{
                             // inherit properties from parent
-                            daughter.genotype = cell.genotype;
-                            daughter.g_drugless = cell.g_drugless;
-                            daughter.ic50 = cell.ic50;
-                            daughter.hillCoef = cell.hillCoef;
+                            // daughter.genotype = cell.genotype;
+                            // daughter.g_drugless = cell.g_drugless;
+                            // daughter.ic50 = cell.ic50;
+                            // daughter.hillCoef = cell.hillCoef;
+                            // daughter.gmin = cell.gmin;
+                            daughter.setParams(cell.genotype);
                             
                         }
                         genotypeCounts[daughter.genotype] += 1;
@@ -421,30 +623,51 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
 
         int x=100;
         int y=100;
-        int timesteps=1000;
-        GridWindow visCells=new GridWindow(x,y,5,true,null,true);
-        GridWindow visDiff=new GridWindow(x,y,5,true,null,true);
-        // double dieProb=0.01;
-    
-        // GridWindow win = new GridWindow(x,y,10);
-        DoseResponseGrid model = new DoseResponseGrid(x,y);
+        int timesteps=100;
 
+        GridWindow visCells=new GridWindow(x,y,5,true,null,false);
+        GridWindow visDiff=new GridWindow(x,y,5,true,null,true);
+    
+        DoseResponseGrid model = new DoseResponseGrid(x,y);
+        model.consumpRate = 0.0001;
+        model.initGeometry = "square";
+        // model.initGeometry = "circle";
+        // model.initWidth = 10;
+        model.initDensity = 0.01;
+        model.threeParamHill = false;
+        model.srcConc = 10000;
+        model.mutProb = 0.001;
+        model.dieProb = 0.02;
+        model.drugConcScale = 0.01;
+        model.dt = 1;
+        model.staticGrid = true;
+        model.pulseDosing = true;
+        model.pulseInterval = 24;
+        model.pulseDuration = 10;
+        
+        // model.constantGrid = true;
+        // model.constantGridConc =  0;
         model.InitPopulation();
         model.InitPDEGrid();
-
-        // get the number of resistant cells in the tumor
     
         for (int i = 0; i < timesteps; i++) {
             // model step
             model.StepModel();
             model.Draw(visCells,visDiff);
-            visDiff.TickPause(1);
+
+            System.out.println("Timestep: " + i*model.dt + " ");
+            System.out.println(model.drugOn);
+            // tIdx*dt % pulseInterval < pulseDuration
+
+            System.out.println('\n');
+            model.tIdx++;
+
         }
         // model.SaveDiffGrid(model.diff, "/Users/eshanking/repos/HAL_fds/DoseResponse/data/diffGrid.csv");
     }
 
     public void Run() throws IOException {
-
+        // System.out.println(threeParamHill);
         UIGrid currVis = new UIGrid(xDim, yDim, scaleFactor, visualiseB); // For head-less run
         this.visCells = currVis;
 
@@ -469,6 +692,7 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
             tIdx++;
             completedSimulationB = (tIdx>nTSteps)?true:false;
         }
+
         if (saveFinalDiffImg){
             SaveDiffImage(tIdx);
         }
@@ -496,7 +720,7 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
         // cellCountLogFile.Write("TIdx,Time,NCells_S,NCells_R,NCells,DrugConcentration,rS,rR,mS,mR,dS,dR,dD_div_S,dD_div_R,dt");
 
         // cellCountLogFile.Write("TIdx,Time,NCells_S,NCells_R,NCells");
-        cellCountLogFile.Write("TIdx,Time,Pop,n_gen0,n_gen1,n_gen2,n_gen3,mutProb,dieProb,diffRate,consumpRate,src1_Conc,src2_Conc,src1_X,src2_X,src1_Y,src2_Y");
+        cellCountLogFile.Write("TIdx,Time,Pop,n_gen0,n_gen1,n_gen2,n_gen3,mutProb,dieProb,diffRate,consumpRate,srcConc,src1_X,src2_X,src1_Y,src2_Y,drugOn");
         
         cellCountLogFile.Write("\n");
     }
@@ -519,10 +743,15 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
     }
 
     public double[] GetModelState() {
+
+        double drugOnStatus = 0;
+        if (drugOn){
+            drugOnStatus = 1;
+        }
    
         return new double[] {tIdx, tIdx*dt, Pop(), genotypeCounts[0], genotypeCounts[1], 
                              genotypeCounts[2], genotypeCounts[3], mutProb, dieProb, diffRate,
-                             consumpRate, srcConc[0], srcConc[1], srcX[0], srcX[1], srcY[0], srcY[1]};
+                             consumpRate, srcConc, srcX[0], srcX[1], srcY[0], srcY[1], drugOnStatus};
         
     }
 
@@ -548,6 +777,11 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
             File diffGridFile = new File(diffFileName);
             diffGridFile.createNewFile();
             FileWriter diffGridFileWriter = new FileWriter(diffFileName);
+
+            if (tIdx*dt > drugStopTime){
+                // reinitialize the field
+                InitPDEGrid();
+            }
             double[] field = diff.GetField();
             
             diffGridFileWriter.write("x,y,field\n");
@@ -574,7 +808,7 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
             
             popGridFileWriter.write("x,y,genotype\n");
             int currPos;
-            for (Cell cell : this){
+            for (DoseResponseCell cell : this){
                 currPos = cell.Isq();
                 popGridFileWriter.write(currPos % xDim + "," + currPos / xDim + "," + cell.GetGenotype() + "\n");
             }
@@ -631,7 +865,7 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
      * Draw cells and diffusion grid
      */
     public void Draw(UIGrid visCells, UIGrid visDiff){
-        for (Cell cell : this) {
+        for (DoseResponseCell cell : this) {
             visCells.SetPix(cell.Isq(),colorList[cell.genotype]);//draw sources and sinks
         }
         for (int i = 0; i < length; i++) {//length of the Grid
@@ -643,7 +877,7 @@ public class DoseResponseGrid extends AgentGrid2D<Cell> implements SerializableM
      * Draw cells only
      */
     public void Draw(UIGrid visCells){
-        for (Cell cell : this) {
+        for (DoseResponseCell cell : this) {
             visCells.SetPix(cell.Isq(),colorList[cell.genotype]);//draw sources and sinks
         }
     }

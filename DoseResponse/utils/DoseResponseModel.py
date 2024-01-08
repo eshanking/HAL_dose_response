@@ -41,7 +41,19 @@ class DoseResponseModel():
                             "saveFinalDiffGrid":None,
                             "saveFinalPopGrid":None,
                             "vesselSep":None,
-                            "printCommand":False}
+                            "printCommand":False,
+                            "staticGrid":False,
+                            "charLength":None,
+                            "constantGrid":None,
+                            "constantGridConc":None,
+                            "threeParamHill":None,
+                            "drugConcScale":None,
+                            "pulseDosing":None,
+                            "pulseDuration":None,
+                            "pulseInterval":None,
+                            "useMaxConc":None,
+                            "maxConc":None,
+                            "drugStopTime":None}
                                
         self.jarFileName = kwargs.get('jarFileName', './Model.jar')
         self.resultsDf = None
@@ -60,6 +72,8 @@ class DoseResponseModel():
         for key in self.modelConfigDic.keys():
             
             self.modelConfigDic[key] = kwargs.get(key, self.modelConfigDic[key])
+        
+        # print('dt is ' + str(self.modelConfigDic['dt']))
         # The 'cost' and 'turnover' parameters provide shorthands to set the global deathrate and resistant cell proliferation rate
         # if self.modelConfigDic['turnover'] != None:
         #     self.modelConfigDic['deathRate_S'] = self.modelConfigDic['turnover']*self.modelConfigDic['divisionRate_S']
@@ -69,7 +83,8 @@ class DoseResponseModel():
         # Ensure that the paths for the output directories have a file separator at the end so that
         # java then creates the correct file names.
         self.modelConfigDic['outDir'] = os.path.join(self.modelConfigDic['outDir'], "")
-        if 'imageOutDir' in self.modelConfigDic: self.modelConfigDic['imageOutDir'] = os.path.join(self.modelConfigDic['imageOutDir'], "")
+        if 'imageOutDir' in self.modelConfigDic: 
+            self.modelConfigDic['imageOutDir'] = os.path.join(self.modelConfigDic['imageOutDir'], "")
 
     # def ConvertTreatmentScheduleToStr(self, treatmentScheduleList):
     #     treatmentScheduleStr = "["
@@ -92,7 +107,9 @@ class DoseResponseModel():
                     argStr += "--%s " % (var)
             else:
                 argStr += "--%s %s " % (var, self.modelConfigDic[var])
-        if printCommand: print("java -jar %s" % self.jarFileName + argStr)
+        if printCommand: 
+            # print("java -jar %s" % self.jarFileName + argStr)
+            print(argStr)
         os.system("java -jar %s" % self.jarFileName + argStr)
 
     def LoadSimulations(self, normalise=False):

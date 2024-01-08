@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 
 import HAL.lib.CommandLine;
+import HAL.lib.CommandLine.Command;
 
 @CommandLine.Command(name = "2-D Agent-Based Model of Bacterial Evolution with Drug Diffusion",
         mixinStandardHelpOptions = true,
@@ -30,7 +31,8 @@ public class DoseResponseModel implements Runnable {
     double initDensity = model.initDensity;
     @CommandLine.Option(names = { "-pM", "--pMutant"}, description="Initial mutant proportion") 
     double initMutantProp = model.initMutantProp;
-
+    @CommandLine.Option(names = { "--initGenotype"}, description="Initial mutant proportion") 
+    int initGenotype = model.initGenotype;
     @CommandLine.Option(names = { "-dt", "--dt"}, description="Time step in days.") 
     double dt = model.dt;
     @CommandLine.Option(names = { "-nTSteps", "--nTSteps"}, description="Number of time steps to run for.")
@@ -41,15 +43,39 @@ public class DoseResponseModel implements Runnable {
     double dieProb = model.dieProb;
     @CommandLine.Option(names = { "-mutProb", "--mutProb"}, description="Probability of cell mutation")
     double mutProb = model.mutProb;
+    @CommandLine.Option(names = { "-threeParamHill", "--threeParamHill"}, description="If true, use 3 parameter hill equation")
+    boolean threeParamHill = model.threeParamHill;
+    @CommandLine.Option(names = { "-useMaxConc", "--useMaxConc"}, description="If true, use max concentration above which fitness is 0")
+    boolean useMaxConc = model.useMaxConc;
+    @CommandLine.Option(names = { "-maxConc", "--maxConc"}, description="Maximum concentration above which fitness is 0")
+    double maxConc = model.maxConc;
     // ------------------------- Diffusion Grid Properties -------------------------
     @CommandLine.Option(names = { "-diffRate", "--diffRate"}, description="Diffusion rate of drug")
     double diffRate = model.diffRate;
     @CommandLine.Option(names = { "-srcConc", "--srcConc"}, description="Drug concentration at blood vessel source")
-    double[] srcConc = model.srcConc;
+    double srcConc = model.srcConc;
     @CommandLine.Option(names = {"-consumpRate", "--consumpRate"}, description="Field consumption rate")
     double consumpRate = model.consumpRate;
     @CommandLine.Option(names = {"-vesselSep", "--vesselSep"}, description="Separation between the two blood vessels")
     int vesselSep = model.vesselSep; 
+    @CommandLine.Option(names = {"-staticGrid", "--staticGrid"}, description="If true, grid is static defined by time-independent exponential decay")
+    boolean staticGrid = model.staticGrid;
+    @CommandLine.Option(names = {"-charLength", "--charLength"}, description="Characteristic length of exponential decay")
+    double charLength = model.charLength;
+    @CommandLine.Option(names = {"--constantGrid"}, description="If true, grid is constant defined by constantGridConc")
+    boolean constantGrid = model.constantGrid;
+    @CommandLine.Option(names = {"--constantGridConc"}, description="Constant concentration of drug in grid")
+    double constantGridConc = model.constantGridConc;
+    @CommandLine.Option(names = {"-drugConcScale", "--drugConcScale"}, description="Scale factor for drug concentration experienced by agents")
+    double drugConcScale = model.drugConcScale;
+    @CommandLine.Option(names = {"-pulseDosing", "--pulseDosing"}, description="If true, drug is applied in pulses")
+    boolean pulseDosing = model.pulseDosing;
+    @CommandLine.Option(names = {"-pulseInterval", "--pulseInterval"}, description="Interval between pulses")
+    int pulseInterval = model.pulseInterval;
+    @CommandLine.Option(names = {"-pulseDuration", "--pulseDuration"}, description="Duration of pulses")
+    int pulseDuration = model.pulseDuration;
+    @CommandLine.Option(names = {"-drugStopTime", "--drugStopTime"}, description="Time at which drug is stopped")
+    double drugStopTime = model.drugStopTime;
     // ------------------------- Output - Text -------------------------
     @CommandLine.Option(names = { "--outDir"}, description="Directory which to save output files to.") 
     String outDir = "./tmp/";
@@ -70,6 +96,7 @@ public class DoseResponseModel implements Runnable {
     Boolean saveFinalPopGrid = model.saveFinalPopGrid;
 
     // ------------------------------------------------------------------------------------------------------------
+
     public void run(){
         DoseResponseGrid model;
         String outFName;
@@ -120,9 +147,12 @@ public class DoseResponseModel implements Runnable {
             // Set parameters
 
             model.InitialiseCellLog(outFName);
-            model.SetDiffParams(srcConc, diffRate, consumpRate, vesselSep);
-            model.SetCellParams(mutProb, dieProb);
-            model.SetInitPopParams(initGeometry, initWidth,initDensity,initMutantProp);
+            model.SetDiffParams(srcConc, diffRate, consumpRate, vesselSep, 
+                                staticGrid, charLength, constantGrid, constantGridConc,
+                                drugConcScale, pulseDosing, pulseInterval, pulseDuration, drugStopTime);
+            // System.out.println(threeParamHill);
+            model.SetCellParams(mutProb, dieProb, threeParamHill,useMaxConc, maxConc);
+            model.SetInitPopParams(initGeometry, initWidth,initDensity,initMutantProp,initGenotype);
             model.ConfigureExperiment(nReplicates, nTSteps, dt);
 
             try {
